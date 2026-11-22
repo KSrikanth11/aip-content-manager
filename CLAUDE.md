@@ -20,6 +20,7 @@ If push says a file changed on the server: run `pull --force` (this discards loc
 | Courses | `content/courses.json`, items with `"type": "course"` |
 | Projects / labs | `content/site.json` → `"projects"` list |
 | Articles | `content/articles/<id>-<slug>.html`, one file each |
+| Course lessons | `content/lessons/<course-slug>/<NN>-<lesson-slug>.html`, one file each |
 
 Leave the rest of `site.json` (brand, home page, FAQ, pricing, mentors and so on) alone unless explicitly asked. Push handles redirects, the article indexes and backups itself.
 
@@ -59,6 +60,24 @@ featuredImage: https://media.aiprojects4u.com/images/2026/...
 - **Body:** HTML with `<h2>`/`<h3>` (never `<h1>`: the title is already the page's h1), `<p>`, `<ul>`/`<ol>`, `<a>`, `<img alt="...">`, `<blockquote>`, `<pre><code>`, `<table>`, YouTube/Vimeo `<iframe>`. Scripts, styles and event handlers are stripped on push.
 - **Good articles:** 800–1500 words for guides; a clear intro answering the search intent; descriptive h2s; 2–3 links to related courses/internships/articles (`/internships/<slug>`, `/courses/<slug>`, `/blog/<slug>`); alt text on every image; a featuredImage; original, accurate content. Don't invent statistics, testimonials or reviews.
 - Deleting the file deletes the article (confirm first). Unpublishing makes its URL return 404; prefer keeping published articles live.
+
+## Course lessons
+Free interactive lessons inside a course or internship, live at `/courses/<course-slug>/lessons/<lesson-slug>`. The folder name must be the program's slug. The file name is the lesson number plus its URL slug (`03-using-generative-ai-responsibly.html`). There is no draft mode: pushed lessons are public, so show the dry run first as usual.
+```
+---
+title: Using Generative AI Responsibly
+summary: 70–160 characters, shown under the title and in Google.
+minutes: 18
+credit: Adapted from Lesson 3 of Microsoft's "Generative AI for Beginners" (MIT License), rewritten and extended by Aiprojects4U.
+creditUrl: https://github.com/microsoft/generative-ai-for-beginners/tree/main/03-using-generative-ai-responsibly
+---
+<div class="lesson-goals">...</div>
+<h2>...</h2>
+```
+- Body: same HTML as articles, plus `data-*` attributes and `<details>`/`<summary>`. Building blocks (see the website README, "Course lessons"): `.quiz` with `.quiz__q data-answer="N"` (1-based), `.exercise` with `data-check="expected output"` and a `<pre><code>` starter, plus a `<details>` solution, and `data-widget="tokenizer|next-token|flow|reveal|chat|model-picker|safety-layers|prompt-builder|embeddings"`. Helpers: `.lesson-goals`, `.callout`, `.callout--tip`, `.callout--warn`, `.example`, `.compare`.
+- Every lesson: goals, clear h2 sections, at least one animated widget, a runnable exercise (standard-library Python, no API keys), a quiz and key takeaways. Test every exercise: the starter must run, it must not already pass `data-check`, and the solution must pass it.
+- Content adapted from open courses must keep its credit line and stay within the licence (MIT/Apache/CC BY: fine with credit; never NC-licensed material).
+- Prefer keeping published lessons. Deleting a lesson file makes its URL return 404 (confirm first).
 
 ## SEO
 - `python3 aip.py seo`: audits the pulled content (titles, meta descriptions, thin articles, missing alt/images/internal links, duplicates).

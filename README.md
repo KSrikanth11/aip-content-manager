@@ -1,6 +1,6 @@
 # Aiprojects4U content assistant
 
-Lets Claude add and edit courses, internships, projects and blog articles on aiprojects4u.com, check SEO, and publish, from your phone. It writes the same files as the `/admin` dashboard, so both stay in sync. `CLAUDE.md` tells Claude how to work here.
+Lets Claude add and edit courses, internships, projects, blog articles and free course lessons on aiprojects4u.com, check SEO, and publish, from your phone. It writes the same files as the `/admin` dashboard, so both stay in sync. `CLAUDE.md` tells Claude how to work here.
 
 ## Phone setup (Claude Code on the web)
 Claude runs in the cloud on this repo, so your computer can be off.

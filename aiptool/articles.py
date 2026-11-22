@@ -183,10 +183,15 @@ def _safe_url(value, iframe=False):
     return raw
 
 
+LESSON_TAGS = {"details", "summary"}  # extra tags lessons may use (e.g. "Show solution")
+DATA_ATTR = re.compile(r"^data-[a-z0-9]+(?:-[a-z0-9]+)*$")
+
+
 class _Sanitizer(HTMLParser):
-    def __init__(self):
+    def __init__(self, allow_data=False):
         super().__init__(convert_charrefs=True)
         self.out, self.skip, self.stack = [], 0, []
+        self.allow_data = allow_data  # lessons keep data-* attributes (quizzes, exercises, widgets)
 
     def handle_starttag(self, tag, attrs, self_closing=False):
         if self.skip:
@@ -197,12 +202,12 @@ class _Sanitizer(HTMLParser):
             if tag not in VOID and not self_closing:
                 self.skip = 1
             return
-        if tag not in ALLOWED_TAGS:
+        if tag not in ALLOWED_TAGS and not (self.allow_data and tag in LESSON_TAGS):
             return  # drop the tag, keep its text
         allowed = COMMON_ATTRS | ALLOWED_ATTRS.get(tag, set())
         kept = {}
         for name, value in attrs:
-            if name not in allowed:
+            if name not in allowed and not (self.allow_data and DATA_ATTR.match(name)):
                 continue
             if name in URL_ATTRS:
                 value = _safe_url(value, iframe=tag == "iframe")
@@ -249,9 +254,9 @@ class _Sanitizer(HTMLParser):
         return "".join(self.out) + "".join(f"</{t}>" for t in reversed(self.stack) if not t.startswith("#"))
 
 
-def sanitize(markup):
+def sanitize(markup, allow_data=False):
     if not re.search(r"[<>]", markup or ""):
         return markup or ""
-    s = _Sanitizer()
+    s = _Sanitizer(allow_data)
     s.feed(markup)
     return s.result()
