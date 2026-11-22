@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Manage aiprojects4u.com content: courses, internships, projects and blog articles.
+"""Manage aiprojects4u.com content: courses, internships, projects, blog articles and course lessons.
 
-    python3 aip.py pull                  download live content into content/
+    python3 aip.py pull                  download live content into content/ (lessons included)
     python3 aip.py list [courses|internships|projects|articles]
     python3 aip.py validate              check content/ for mistakes
     python3 aip.py diff                  show what push would change
@@ -25,12 +25,14 @@ from pathlib import Path
 
 from aiptool import articles as art
 from aiptool import catalog as cat
+from aiptool import lessons as les
 from aiptool import seo
 from aiptool.r2 import R2, R2Error
 
 HERE = Path(__file__).resolve().parent
 CONTENT = HERE / "content"
 ARTICLES = CONTENT / "articles"
+LESSONS = CONTENT / "lessons"
 STATE = CONTENT / ".pulled.json"   # what was pulled (versions + ETags), for diff and safe writes
 LOCAL_BACKUPS = HERE / "backups"
 
@@ -42,6 +44,8 @@ KEYS = {  # same object keys the site and admin use
     "public_article": "content/articles/{slug}.json",
     "article_index": "articles/index.json",          # private bucket (drafts included)
     "article": "articles/{id}.json",                 # private bucket
+    "lesson_index": "content/lessons/index.json",
+    "lesson": "content/lessons/{course}/{slug}.json",
 }
 PUBLIC_CACHE = "public, max-age=60"
 JSON_TYPE = "application/json; charset=utf-8"
@@ -105,11 +109,26 @@ def load_state():
         sys.exit("Nothing pulled yet. Run `python3 aip.py pull` first.")
     state = json.loads(STATE.read_text())
     state["articles"] = {int(k): v for k, v in state["articles"].items()}
+    state["lessons"] = {tuple(k.split("/", 1)): v for k, v in (state.get("lessons") or {}).items()}
     return state
 
 
 def save_state(state):
-    STATE.write_text(json.dumps(state, ensure_ascii=False))
+    out = dict(state, lessons={f"{c}/{s}": v for (c, s), v in (state.get("lessons") or {}).items()})
+    STATE.write_text(json.dumps(out, ensure_ascii=False))
+
+
+def write_lesson_file(lesson):
+    folder = LESSONS / lesson["course"]
+    folder.mkdir(parents=True, exist_ok=True)
+    for old in folder.glob(f"*-{lesson['slug']}.html"):
+        old.unlink()
+    (folder / les.file_name(lesson)).write_text(les.render_file(lesson), encoding="utf-8")
+
+
+def program_slugs(programs):
+    """Slugs courses will have after push (new ones get a slug from their title)."""
+    return {p.get("slug") or cat.to_slug(p.get("title") or "") for p in programs} - {""}
 
 
 def load_local():
@@ -178,6 +197,8 @@ def changes_summary(state, programs, site, local_articles):
     if other:
         lines.append(f"  ~ site.json sections changed: {', '.join(other)}")
     lines += describe_articles(article_changes(state, local_articles))
+    local_lessons, _ = les.load_dir(LESSONS)
+    lines += les.describe(les.changes(state.get("lessons") or {}, local_lessons))
     return lines
 
 
@@ -194,6 +215,13 @@ def cmd_pull(args):
     for name in ("courses", "site", "redirects"):
         data[name], etags[name] = r2.get_json(cfg["public"], KEYS[name])
     data["article_index"], etags["article_index"] = r2.get_json(cfg["private"], KEYS["article_index"])
+    data["lesson_index"], etags["lesson_index"] = r2.get_json(cfg["public"], KEYS["lesson_index"])
+    pulled_lessons = {}
+    for course, items in (data["lesson_index"] or {}).items():
+        for item in items or []:
+            lesson, _ = r2.get_json(cfg["public"], KEYS["lesson"].format(course=course, slug=item["slug"]))
+            if lesson:
+                pulled_lessons[(course, item["slug"])] = dict(lesson, course=course, slug=item["slug"])
     full = {}
     for summary in data["article_index"] or []:
         article, _ = r2.get_json(cfg["private"], KEYS["article"].format(id=summary["id"]))
@@ -208,13 +236,19 @@ def cmd_pull(args):
     (CONTENT / "site.json").write_text(dump(data["site"] or {}), encoding="utf-8")
     for article in full.values():
         write_article_file(article)
-    save_state({"pulledAt": time.strftime("%Y-%m-%d %H:%M:%S"), "etags": etags, "data": data, "articles": full})
+    if LESSONS.exists():
+        for old in LESSONS.glob("*/*.html"):
+            old.unlink()
+    for lesson in pulled_lessons.values():
+        write_lesson_file(lesson)
+    save_state({"pulledAt": time.strftime("%Y-%m-%d %H:%M:%S"), "etags": etags, "data": data, "articles": full,
+                "lessons": pulled_lessons})
 
     programs = data["courses"] or []
     print(f"Pulled: {sum(p.get('type') == 'internship' for p in programs)} internships, "
           f"{sum(p.get('type') != 'internship' for p in programs)} courses, "
           f"{len((data['site'] or {}).get('projects') or [])} projects, {len(full)} articles "
-          f"({sum(bool(a.get('published')) for a in full.values())} published).")
+          f"({sum(bool(a.get('published')) for a in full.values())} published), {len(pulled_lessons)} lessons.")
     if not data["site"]:
         print("Note: site.json doesn't exist in R2 yet; the site shows built-in sample content until the first save.")
 
@@ -246,7 +280,10 @@ def run_validation(programs, site, local_articles, parse_errors):
     errors += parse_errors + a_errors
     errors += [f"article {name}: id {a['id']} doesn't exist in R2 (maybe deleted in the admin). Remove the id line to create it as a new article."
                for kind, name, a, _ in article_changes(state, local_articles) if kind == "unknown"]
-    return errors, warnings + a_warnings
+    local_lessons, l_parse = les.load_dir(LESSONS)
+    l_errors, l_warnings = les.validate(local_lessons, program_slugs(programs))
+    errors += l_parse + l_errors
+    return errors, warnings + a_warnings + l_warnings
 
 
 def cmd_validate(_args):
@@ -275,6 +312,11 @@ def cmd_push(args):
     old_site = state["data"]["site"] or {}
     old_projects = old_site.get("projects") or []
     cat.finalize(programs, site["projects"], old_programs, old_projects)
+
+    local_lessons, _ = les.load_dir(LESSONS)
+    old_lessons = state.get("lessons") or {}
+    lesson_changes = les.changes(old_lessons, local_lessons)
+    lessons_now = les.finalize(local_lessons, old_lessons)
 
     lines = changes_summary(state, programs, site, local_articles)
     print("Changes:")
@@ -321,6 +363,8 @@ def cmd_push(args):
         writes.append((cfg["public"], KEYS["site"], dump(site, False), PUBLIC_CACHE, "site"))
     if changes:
         writes.append((cfg["private"], KEYS["article_index"], dump(index), None, "article_index"))
+    if lesson_changes:
+        writes.append((cfg["public"], KEYS["lesson_index"], dump(les.build_index(lessons_now), False), PUBLIC_CACHE, "lesson_index"))
 
     # ---- refuse before writing anything if someone else changed these files since the pull
     checks = [(b, k, n) for b, k, _, _, n in writes]
@@ -337,6 +381,11 @@ def cmd_push(args):
     for _, _, _, before in changes:
         if before:
             backup[f"articles/{before['id']}.json"] = before
+    if lesson_changes:
+        backup["lessons/index.json"] = state["data"].get("lesson_index") or {}
+        for _, (course, slug), _, before in lesson_changes:
+            if before:
+                backup[f"lessons/{course}/{slug}.json"] = before
     local_dir = LOCAL_BACKUPS / stamp
     for name, data in backup.items():
         r2.put(cfg["private"], f"backups/{stamp}/{name}", dump(data).encode(), JSON_TYPE)
@@ -345,6 +394,12 @@ def cmd_push(args):
 
     # ---- write, in the same order as the admin
     try:
+        for kind, (course, slug), _, _ in lesson_changes:  # bodies first, so the index never lists a missing lesson
+            if kind != "deleted":
+                lesson = lessons_now[(course, slug)]
+                r2.put(cfg["public"], KEYS["lesson"].format(course=course, slug=slug),
+                       dump(les.public_lesson(lesson), False).encode(), JSON_TYPE, PUBLIC_CACHE)
+                print(f"  saved lesson {course}/{slug}")
         for bucket, key, payload, cache, name in writes:
             etag = state["etags"].get(name)
             state["etags"][name] = r2.put(bucket, key, payload.encode(), JSON_TYPE, cache, if_match=etag, if_absent=not etag)
@@ -362,6 +417,10 @@ def cmd_push(args):
             print(f"  deleted article {aid}")
         if changes:
             r2.put(cfg["public"], KEYS["public_article_index"], dump(art.public_index(index), False).encode(), JSON_TYPE, PUBLIC_CACHE)
+        for kind, (course, slug), _, _ in lesson_changes:  # after the index stops listing them
+            if kind == "deleted":
+                r2.delete(cfg["public"], KEYS["lesson"].format(course=course, slug=slug))
+                print(f"  deleted lesson {course}/{slug}")
         if redirects != (state["data"]["redirects"] or []):
             etag = state["etags"].get("redirects")
             state["etags"]["redirects"] = r2.put(cfg["public"], KEYS["redirects"], dump(redirects).encode(), JSON_TYPE,
@@ -373,6 +432,13 @@ def cmd_push(args):
 
     # ---- local copy now matches the server
     state["data"].update(courses=programs, site=site, redirects=redirects, article_index=index)
+    if lesson_changes:
+        state["data"]["lesson_index"] = les.build_index(lessons_now)
+        state["lessons"] = lessons_now
+        for old in LESSONS.glob("*/*.html"):
+            old.unlink()
+        for lesson in lessons_now.values():
+            write_lesson_file(lesson)
     for aid in removed_private:
         state["articles"].pop(aid, None)
     for article in saved:
@@ -389,6 +455,11 @@ def cmd_push(args):
     for article in saved:
         if article["published"]:
             print(f"  {cfg['site_url']}/blog/{article['slug']}")
+    for kind, (course, slug), _, _ in lesson_changes:
+        if kind != "deleted":
+            program = next((p for p in programs if p.get("slug") == course), None)
+            section = "internships" if program and program.get("type") == "internship" else "courses"
+            print(f"  {cfg['site_url']}/{section}/{course}/lessons/{slug}")
 
 
 def cmd_seo(args):
@@ -448,6 +519,16 @@ def cmd_restore(args):
             article = {k: v for k, v in article.items() if k != "id"}
             (ARTICLES / f"restored-{article.get('slug')}.html").write_text(art.render_file(article), encoding="utf-8")
         restored += 1
+    restored_lessons = 0
+    for key in r2.list_keys(cfg["private"], f"backups/{stamp}/lessons/"):
+        if key.endswith("/lessons/index.json"):
+            continue
+        lesson, _ = r2.get_json(cfg["private"], key)
+        if lesson and lesson.get("course") and lesson.get("slug"):
+            write_lesson_file(lesson)
+            restored_lessons += 1
+    if restored_lessons:
+        print(f"Restored {restored_lessons} lesson file(s). Lessons added after this backup are still in content/lessons/: delete those files if you want them removed.")
     print(f"Restored backup {stamp} into content/ (courses, site{f', {restored} article(s)' if restored else ''}).")
     print("Run `python3 aip.py push` to review, then `push --yes` to publish it.")
 
