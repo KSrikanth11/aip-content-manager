@@ -26,7 +26,7 @@ from pathlib import Path
 from . import articles as art
 from .catalog import now_iso
 
-FIELDS = ("title", "summary", "minutes", "credit", "creditUrl")
+FIELDS = ("title", "seoTitle", "summary", "minutes", "credit", "creditUrl")
 INDEX_FIELDS = ("slug", "n", "title", "summary", "minutes", "updatedAt")
 NAME_RE = re.compile(r"^(\d{1,3})-([a-z0-9]+(?:-[a-z0-9]+)*)\.html$")
 SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
@@ -60,6 +60,7 @@ def parse_file(path):
         "n": int(m.group(1)),
         "slug": m.group(2),
         "title": meta.get("title", ""),
+        "seoTitle": meta.get("seoTitle") or None,
         "summary": meta.get("summary") or None,
         "minutes": int(minutes) if minutes else None,
         "credit": meta.get("credit") or None,
@@ -101,7 +102,7 @@ def load_dir(root):
 
 
 def comparable(lesson):
-    return {k: (lesson.get(k) if k in ("n", "minutes") else art.text(lesson.get(k))) for k in ("n", "title", "summary", "minutes", "credit", "creditUrl", "content")}
+    return {k: (lesson.get(k) if k in ("n", "minutes") else art.text(lesson.get(k))) for k in ("n", "title", "seoTitle", "summary", "minutes", "credit", "creditUrl", "content")}
 
 
 def finalize(local, existing):
@@ -158,7 +159,7 @@ def build_index(lessons):
 
 
 def public_lesson(lesson):
-    return {k: lesson.get(k) for k in ("course", "slug", "n", "title", "summary", "minutes", "credit", "creditUrl", "content", "updatedAt")}
+    return {k: lesson.get(k) for k in ("course", "slug", "n", "title", "seoTitle", "summary", "minutes", "credit", "creditUrl", "content", "updatedAt")}
 
 
 def validate(local, program_slugs):
@@ -174,6 +175,8 @@ def validate(local, program_slugs):
             errors.append(f"{where}: the lesson body is empty")
         if re.search(r"<h1[\s>]", lesson.get("content") or "", re.I):
             errors.append(f"{where}: don't use <h1> in the body (the title is the page's h1); use <h2>")
+        if lesson.get("seoTitle") and len(lesson["seoTitle"]) > 60:
+            warnings.append(f"{where}: seoTitle is {len(lesson['seoTitle'])} characters (aim for 60 or less)")
         if not lesson.get("summary"):
             warnings.append(f"{where}: no summary (Google will make one up)")
         elif not 70 <= len(lesson["summary"]) <= 170:

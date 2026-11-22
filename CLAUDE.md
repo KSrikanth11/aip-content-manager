@@ -65,6 +65,7 @@ featuredImage: https://media.aiprojects4u.com/images/2026/...
 Free interactive lessons inside a course or internship, live at `/courses/<course-slug>/lessons/<lesson-slug>`. The folder name must be the program's slug. The file name is the lesson number plus its URL slug (`03-using-generative-ai-responsibly.html`). There is no draft mode: pushed lessons are public, so show the dry run first as usual.
 ```
 ---
+seoTitle: Responsible AI: Using Generative AI Safely   (optional, ≤ 60 characters with the site name)
 title: Using Generative AI Responsibly
 summary: 70–160 characters, shown under the title and in Google.
 minutes: 18
