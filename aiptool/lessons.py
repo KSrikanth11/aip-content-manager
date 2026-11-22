@@ -181,6 +181,10 @@ def validate(local, program_slugs):
         for q in re.findall(r'<div[^>]*class="[^"]*\bquiz__q\b[^"]*"[^>]*>', lesson.get("content") or ""):
             if "data-answer=" not in q:
                 errors.append(f"{where}: a quiz question has no data-answer=\"N\" (the number of the right option)")
+        for code in re.findall(r"<pre><code>(.*?)</code></pre>", lesson.get("content") or "", re.S):
+            raw = re.findall(r"<(?!/?code\b)[a-zA-Z/][^>]*>", code)
+            if raw:
+                errors.append(f"{where}: unescaped {raw[0]} inside a code block would be stripped on push; write it as &lt;...&gt;")
         for img in re.findall(r"<img\b[^>]*>", lesson.get("content") or "", re.I):
             if not re.search(r'\balt="[^"]+"', img):
                 warnings.append(f"{where}: an image has no alt text")
