@@ -26,7 +26,7 @@ Leave the rest of `site.json` (brand, home page, FAQ, pricing, mentors and so on
 
 ## Courses, internships, projects
 - `title` (required), `hook` (one line on cards), `description` (blank line = new paragraph)
-- `type`: `"internship"` or `"course"` (programs only); `featured: true` shows it first
+- `type`: `"internship"` or `"course"` (programs only); `featured: true` shows it first; `hideCertificate: true` hides the sample-certificate section (for programs without a certificate)
 - `slug`: lowercase-with-dashes URL name. Leave it out for new items; push creates it. Changing it changes the URL, and push adds a 301 redirect.
 - `category`, `mode` (e.g. `"Remote · Live mentorship"`), `duration`, `difficulty` (`Beginner` / `Intermediate` / `Advanced`), `startDate` (`"YYYY-MM-DD"`); projects also have `idealFor` and `video`
 - `image`: a URL from `upload-image`, or an existing path like `"assets/images/chatbot.svg"`
